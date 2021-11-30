@@ -5,94 +5,60 @@ use std::task::{Context, Poll};
 // use actix_web::{dev::ServiceRequest, dev::ServiceResponse, Error};
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::Error;
-use futures::future::{ok, Ready};
+// use futures::future::{ok, Ready};
+use futures::future::{ready, Ready};
 use futures::Future;
 
-#[derive(Debug, Clone)]
-pub struct Msg(pub String);
+// There are two steps in middleware processing.
+// 1. Middleware initialization, middleware factory gets called with
+//    next service in chain as parameter.
+// 2. Middleware's call method gets called with normal request.
+pub struct SayHi;
 
-#[doc(hidden)]
-pub struct AddMsgService<S> {
-    service: S,
-    enabled: bool,
-}
-
-impl<S, B> Service for AddMsgService<S>
-    where
-        S: Service<
-            Request = ServiceRequest,
-            Response = ServiceResponse<B>,
-            Error = actix_web::Error,
-        >,
-        S::Future: 'static,
-        B: 'static,
+// Middleware factory is `Transform` trait from actix-service crate
+// `S` - type of the next service
+// `B` - type of response's body
+impl<S: Service<Req>, Req> Transform<S, Req> for SayHi
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Error>>>>;
-
-    fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(ctx)
-    }
-
-    fn call(&mut self, req: Self::Request) -> Self::Future {
-        println!("request is passing through the AddMsg middleware");
-
-        // get mut HttpRequest from ServiceRequest
-        let (request, pl) = req.into_parts();
-
-        if self.enabled {
-            // insert data into extensions if enabled
-            request
-                .extensions_mut()
-                .insert(Msg("Hello from Middleware!".to_owned()));
-        }
-
-        // construct a new service response
-        match ServiceRequest::from_parts(request, pl) {
-            Ok(req) => Box::pin(self.service.call(req)),
-            Err(_) => Box::pin(ready(Err(Error::from(())))),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct AddMsg {
-    enabled: bool,
-}
-
-impl AddMsg {
-    pub fn enabled() -> Self {
-        Self { enabled: true }
-    }
-
-    pub fn disabled() -> Self {
-        Self { enabled: false }
-    }
-}
-
-impl<S, B> Transform<S> for AddMsg
-    where
-        S: Service<
-            Request = ServiceRequest,
-            Response = ServiceResponse<B>,
-            Error = actix_web::Error,
-        >,
-        S::Future: 'static,
-        B: 'static,
-{
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
+    type Response = S::Response;
+    type Error = S::Error;
+    type InitError = S::Error;
+    type Transform = SayHiMiddleware<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
-    type Transform = AddMsgService<S>;
-    type InitError = ();
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(AddMsgService {
-            service,
-            enabled: self.enabled,
-        }))
+        ready(Ok(SayHiMiddleware { service }))
+    }
+}
+
+pub struct SayHiMiddleware<S> {
+    service: S,
+}
+
+impl<S: Service<Req>, Req> Service<Req> for SayHiMiddleware<S>
+where
+
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+    // actix_web::dev::forward_ready!(service);
+
+    fn call(&self, req: Req) -> Self::Future {
+        // println!("Hi from start. You requested: {}", req.path());
+        println!("Hi from start. You requested: ");
+
+        let fut = self.service.call(req);
+
+        Box::pin(async move {
+            let res = fut.await?;
+
+            println!("Hi from response");
+            Ok(res)
+        })
     }
 }

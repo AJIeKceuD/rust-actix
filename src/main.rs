@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use actix_web::{web, App, HttpServer, Responder};
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
@@ -25,7 +26,7 @@ async fn main() -> std::io::Result<()> {
     let db_pool =  PgPoolOptions::new()
         .max_connections(5)
         // .connect("host=localhost user=postgres password=postgres port=5433 dbname=rust").await?;
-        .connect(database_url.as_str()).await.expect("Cant connect to DB");;
+        .connect(database_url.as_str()).await.expect("Cant connect to DB");
 
     info!("using sqlite database at: {}", &database_url);
     // Make a simple query to return the given parameter (TODO delete)
@@ -39,7 +40,7 @@ async fn main() -> std::io::Result<()> {
             // pass database pool to application so we can access it inside handlers
             .app_data(Data::new(db_pool.clone()))
             // middleware
-            .wrap(middleware::sayhi::default())
+            .wrap(middleware::sayhi::SayHi)
             .wrap(Logger::default())
             .wrap(Logger::new("%a %{User-Agent}i"))
             // routes
